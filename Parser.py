@@ -1,19 +1,15 @@
 import csv
 import json
 import os.path
-import bs4
 import psycopg2
 from bs4 import BeautifulSoup
 import requests
-import re
-from re import sub
-from decimal import Decimal
-import io
-from datetime import datetime
-import pandas as pd
 from config import password, db_name, user, host
 
-def to_infinity():
+"""Разбивать код на части"""
+
+
+def to_infinity(): # itertools.count
     index = 0
     while True:
         yield index
@@ -23,7 +19,8 @@ def to_infinity():
 class Parser:
     headers = {
         'accept': '*/*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 YaBrowser/23.1.1.1138 Yowser/2.5 Safari/537.36'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)'
+                      ' Chrome/108.0.0.0 YaBrowser/23.1.1.1138 Yowser/2.5 Safari/537.36'
     }
 
     def load_start_pages(self, headers=headers):
@@ -34,7 +31,8 @@ class Parser:
             src = req.text
             soup = BeautifulSoup(src, 'lxml')
             all_items_in_page = soup.find(class_='market-items').find(class_='item')
-            if all_items_in_page is not None:  # проверяем, если на странице есть товар то записываем его html код и идём на следующую страницу
+            if all_items_in_page is not None:  # проверяем, если на странице есть товар то записываем его html
+                # код и идём на следующую страницу
                 with open(f'index{i + 1}.html', 'w', encoding='utf-8') as file:
                     file.write(src)
             else:
@@ -79,31 +77,38 @@ class Parser:
         with open(f'data/{count}.html', encoding='utf-8') as file:
             src = file.read()
         soup = BeautifulSoup(src, 'lxml')
-        price = soup.find(class_='ip-bestprice').text
-        print(price)
-        expansible = []
-        element = soup.find(class_='expansible').find(style='color: #625e56;')
-        if element is not None:  # это предотвращает ошибку если там чего то нет
-            element = soup.find(class_='expansible').find(
-                style='color: #625e56;').next_element.next_element.text
+        price = soup.find(class_='ip-bestprice')
+        if price is not None:
+            price = price.text
+            price = price.strip()
+            price = price.lstrip(" ")
+            price = price.replace(" ", "")
+            print('Выводим переменную price:', price)
+            print(f"||{price}||")
+            expansible = []
+            element = soup.find(class_='expansible').find(style='color: #625e56;')
+            if element is not None:  # это предотвращает ошибку если там чего то нет
+                element = soup.find(class_='expansible').find(
+                    style='color: #625e56;').next_element.next_element.text
+                if element is not None:
+                    expansible.append(element)
+                element = soup.find(class_='expansible').find(
+                    style='color: #625e56;').next_element.next_element.next_element.next_element.text
+                if element is not None:
+                    expansible.append(element)
+            element = soup.find(class_='expansible').find(style='white-space: nowrap; margin: 10px')
+            if element is not None:  # это предотвращает ошибку если нет рун
+                element = soup.find(class_='expansible').find(style='white-space: nowrap; margin: 10px').find_all(
+                    style='vertical-align: top; display: inline-block; margin-left: 12px padding: 2px')
+            print('Выводим переменную expansible: ', expansible)
+            runes = []
             if element is not None:
-                expansible.append(element)
-            element = soup.find(class_='expansible').find(
-                style='color: #625e56;').next_element.next_element.next_element.next_element.text
-            if element is not None:
-                expansible.append(element)
-        element = soup.find(class_='expansible').find(style='white-space: nowrap; margin: 10px')
-        if element is not None:  # это предотвращает ошибку если нет рун
-            element = soup.find(class_='expansible').find(style='white-space: nowrap; margin: 10px').find_all(
-                style='vertical-align: top; display: inline-block; margin-left: 12px padding: 2px')
-        print(expansible)
-        runes = []
-        if element is not None:
-            for item in element:
-                itm1 = item.find('span', style='font-size: 18px; white-space: normal; color: rgb(0, 0, 0)').text
-                itm2 = item.find('span', style='font-size: 12px').text
-                print(itm1, ', Тип: ', itm2)
-                runes.append(itm1 + ', Тип: ' + itm2)
+                for item in element:
+                    itm1 = item.find('span', style='font-size: 18px; white-space: normal; color: rgb(0, 0, 0)').text
+                    itm2 = item.find('span', style='font-size: 12px').text
+                    """print(itm1, ', Тип: ', itm2)"""
+                    runes.append(itm1 + ', Тип: ' + itm2)
+            print("Выводим переменную runes:", runes)
 
     def put_data_in_database(self):
         connection = None
@@ -123,11 +128,77 @@ class Parser:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """CREATE TABLE IF NOT EXISTS data (
-                        price int NOT NULL,
-                        styles text NOT NULL,
+                        id int,
+                        price int,
+                        styles text,
                         runes text);"""
                 )
-
+                for i in to_infinity():
+                    file_path = f'data/{i + 1}.html' # мув который на os вроде где он сам считывает все файлы и не надо счетчик юзать
+                    if os.path.exists(file_path) is True:
+                        with open(f'data/{i + 1}.html', encoding='utf-8') as file: #listdir и walk в os
+                            src = file.read()
+                        soup = BeautifulSoup(src, 'lxml')
+                        price = soup.find(class_='ip-bestprice')
+                        if price is not None:  # может быть случай что страница есть но предмет недоступен в продаже
+                            # и цены нет
+                            price = price.text
+                            price = price.strip()
+                            price = price.replace(" ", "")
+                            cursor.execute(
+                                f"""INSERT INTO data (
+                                    id, price ) VALUES (
+                                    {i + 1}, {price});""" #https://www.psycopg.org/docs/usage.html вместо вставки fстроки
+                            )
+                            expansible = []
+                            element = soup.find(class_='expansible').find(style='color: #625e56;')
+                            if element is not None:  # это предотвращает ошибку если там чего то нет
+                                element = soup.find(class_='expansible').find(
+                                    style='color: #625e56;').next_element.next_element.text
+                                if element is not None:
+                                    expansible.append(element)
+                                    cursor.execute(
+                                        f"""UPDATE data SET styles=COALESCE(styles,'')||'{element}'
+                                         WHERE id={i + 1};""")
+                                element = soup.find(class_='expansible').find(
+                                    style='color: #625e56;').next_element.next_element.next_element.next_element.text
+                                if element is not None:
+                                    expansible.append(element)
+                                    cursor.execute(
+                                        f"""UPDATE data SET styles=COALESCE(styles,'')||E'\n{element}'
+                                         WHERE id={i + 1};""")
+                            element = soup.find(class_='expansible').find(style='white-space: nowrap; margin: 10px')
+                            if element is not None:  # это предотвращает ошибку если нет рун
+                                element = soup.find(class_='expansible').find(
+                                    style='white-space: nowrap; margin: 10px').find_all(
+                                    style='vertical-align: top; display: inline-block; margin-left: 12px padding: 2px')
+                            first_iteration = True  # это для первой итерации, чтобы делать переход на новую  строчку
+                            # после ввода первой руны
+                            if element is not None:
+                                for item in element:
+                                    if first_iteration:
+                                        itm1 = item.find('span',
+                                                         style='font-size: 18px; white-space: normal;'
+                                                               ' color: rgb(0, 0, 0)').text
+                                        itm2 = item.find('span', style='font-size: 12px').text
+                                        itm1 = itm1.replace("'", "")
+                                        itm2 = itm2.replace("'", "")
+                                        cursor.execute(
+                                            f"""UPDATE data SET runes=COALESCE(runes,'')||E'{itm1},
+                                             Тип: {itm2}' WHERE id={i + 1};""")
+                                        first_iteration = False
+                                    else:
+                                        itm1 = item.find('span',
+                                                         style='font-size: 18px; white-space: normal;'
+                                                               ' color: rgb(0, 0, 0)').text
+                                        itm2 = item.find('span', style='font-size: 12px').text
+                                        itm1 = itm1.replace("'", "")
+                                        itm2 = itm2.replace("'", "")
+                                        cursor.execute(
+                                            f"""UPDATE data SET runes=COALESCE(runes,'')||E'\n{itm1},
+                                             Тип: {itm2}' WHERE id={i + 1};""")
+                        else:
+                            continue
 
         except Exception as _ex:
             print("[INFO] Error while working with PostgreSQL", _ex)
@@ -135,6 +206,3 @@ class Parser:
             if connection:
                 connection.close()
                 print("[INFO] PostgreSQL connection closed")
-
-a = Parser()
-a.put_data_in_database()
